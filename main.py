@@ -36,21 +36,24 @@ if uploaded_file:
     if match_strategy == "Fuzzy Match":
         threshold = st.slider("Similarity threshold", 0.0, 1.0, 0.85)
 
-    if st.button("Find Duplicates") and selected_columns:
-        st.session_state.reviewed_pairs.clear()
-
-        if match_strategy == "Exact Match":
-            duplicates = exact_match(df, selected_columns)
-            st.success(f"✅ Found {len(duplicates)} exact duplicates.")
-            st.dataframe(duplicates)
-            st.session_state.duplicates = duplicates
-            st.session_state.is_fuzzy = False
-
+    if st.button("Find Duplicates"):
+        if not selected_columns:
+            st.warning("⚠️ Please select at least one column before finding duplicates.")
         else:
-            matches = fuzzy_match(df, selected_columns, threshold)
-            st.success(f"✅ Found {len(matches)} fuzzy duplicate pairs.")
-            st.session_state.matches = matches
-            st.session_state.is_fuzzy = True
+            st.session_state.reviewed_pairs.clear()
+
+            if match_strategy == "Exact Match":
+                duplicates = exact_match(df, selected_columns)
+                st.success(f"✅ Found {len(duplicates)} exact duplicates.")
+                st.dataframe(duplicates)
+                st.session_state.duplicates = duplicates
+                st.session_state.is_fuzzy = False
+
+            else:
+                matches = fuzzy_match(df, selected_columns, threshold)
+                st.success(f"✅ Found {len(matches)} fuzzy duplicate pairs.")
+                st.session_state.matches = matches
+                st.session_state.is_fuzzy = True
 
     # Show fuzzy review UI if present
     if "matches" in st.session_state and st.session_state.is_fuzzy:
@@ -80,9 +83,30 @@ if uploaded_file:
         if reviewed:
             dropped = set(b for _, b in reviewed)
             final_df = df.drop(index=dropped)
-            log = pd.DataFrame(reviewed, columns=["Kept Row", "Removed Duplicate Row"])
+
+            log_rows = []
+            for kept_idx, removed_idx in reviewed:
+                kept_row = df.loc[kept_idx].copy()
+                removed_row = df.loc[removed_idx].copy()
+
+                kept_row["Change Type"] = "Kept"
+                kept_row["Row Index"] = kept_idx
+                kept_row["Action Description"] = (
+                    f"Row retained from duplicate pair ({kept_idx}, {removed_idx})"
+                )
+
+                removed_row["Change Type"] = "Removed"
+                removed_row["Row Index"] = removed_idx
+                removed_row["Action Description"] = (
+                    f"Row removed as duplicate of row {kept_idx}"
+                )
+
+                log_rows.extend([kept_row, removed_row])
+
+            change_log_df = pd.DataFrame(log_rows)
+
             final_df.to_csv("final_output.csv", index=False)
-            log.to_csv("change_log.csv", index=False)
+            change_log_df.to_csv("change_log.csv", index=False)
 
             st.success(
                 "✅ Final file saved as `final_output.csv` and change log saved as `change_log.csv`"
@@ -95,12 +119,11 @@ if uploaded_file:
             )
             st.download_button(
                 "⬇️ Download Change Log",
-                data=log.to_csv(index=False),
+                data=change_log_df.to_csv(index=False),
                 file_name="change_log.csv",
                 mime="text/csv",
             )
         else:
             st.warning("⚠️ No rows marked as duplicates.")
-
 else:
     st.info("👆 Please upload a CSV file to begin.")
